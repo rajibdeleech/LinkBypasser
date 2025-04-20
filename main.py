@@ -1,43 +1,99 @@
-import os
-import uvicorn
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Updater, CommandHandler, CallbackContext
 import requests
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 
-app = FastAPI()
+BOT_TOKEN = "8115696441:AAHm-CyGqu628dTpxv2edBb_9YbRx8QtV0Y"
 
-@app.get("/")
-async def root():
-    return {"message": "Shadowlink bot is running"}
-
-@app.post("/yl")
-async def yl_handler(request: Request):
-    data = await request.json()
-    url = data.get("url")
-
-    if not url or "shadowlink" not in url:
-        return JSONResponse(content={"error": "Invalid or missing Shadowlink URL"}, status_code=400)
-
+def yl_handler(update: Update, context: CallbackContext):
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        json_data = response.json()
+        args = update.message.text.split()
+        if "-n" not in args or "-t" not in args:
+            update.message.reply_text("Missing -n or -t flags. Use:\n/yl <link> -n <title> -t <thumbnail>")
+            return
 
-        download = json_data.get("data", {}).get("download")
-        title = json_data.get("data", {}).get("title")
-        thumbnail = json_data.get("data", {}).get("thumbnail")
+        link_index = 1
+        n_index = args.index("-n")
+        t_index = args.index("-t")
 
-        if not download or not download.endswith(".mkv"):
-            return JSONResponse(content={"error": "MKV file not found"}, status_code=404)
+        shadowlink = args[link_index]
+        title = " ".join(args[n_index + 1:t_index])
+        thumbnail = " ".join(args[t_index + 1:])
 
-        return JSONResponse(content={
-            "title": title,
-            "thumbnail": thumbnail,
-            "download": download
-        })
+        # Call your deployed bypasser API
+        bypass_url = f"https://linkbypasser-nwlt.onrender.com/bypass?url={shadowlink}"
+        response = requests.get(bypass_url)
+        final_link = response.text.strip()
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Leech", url=final_link)],
+            [InlineKeyboardButton("Download", url=final_link)]
+        ])
+
+        caption = f"<b>{title}</b>\n\n<a href='{final_link}'>Download Link</a>"
+
+        context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=thumbnail,
+            caption=caption,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        update.message.reply_text(f"Error: {e}")
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("yl", yl_handler))
+    updater.start_polling()
+    updater.idle()from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Updater, CommandHandler, CallbackContext
+import requests
+
+BOT_TOKEN = "8115696441:AAHm-CyGqu628dTpxv2edBb_9YbRx8QtV0Y"
+
+def yl_handler(update: Update, context: CallbackContext):
+    try:
+        args = update.message.text.split()
+        if "-n" not in args or "-t" not in args:
+            update.message.reply_text("Missing -n or -t flags. Use:\n/yl <link> -n <title> -t <thumbnail>")
+            return
+
+        link_index = 1
+        n_index = args.index("-n")
+        t_index = args.index("-t")
+
+        shadowlink = args[link_index]
+        title = " ".join(args[n_index + 1:t_index])
+        thumbnail = " ".join(args[t_index + 1:])
+
+        # Call your deployed bypasser API
+        bypass_url = f"https://linkbypasser-nwlt.onrender.com/bypass?url={shadowlink}"
+        response = requests.get(bypass_url)
+        final_link = response.text.strip()
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Leech", url=final_link)],
+            [InlineKeyboardButton("Download", url=final_link)]
+        ])
+
+        caption = f"<b>{title}</b>\n\n<a href='{final_link}'>Download Link</a>"
+
+        context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=thumbnail,
+            caption=caption,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        update.message.reply_text(f"Error: {e}")
+
+if __name__ == "__main__":
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("yl", yl_handler))
+    updater.start_polling()
+    updater.idle()
