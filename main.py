@@ -2,12 +2,12 @@ import os
 import requests
 from flask import Flask
 from dotenv import load_dotenv
-from telegram import Bot, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import CommandHandler, Updater
+import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
-bot = Bot(token=TOKEN)
+bot = telebot.TeleBot(TOKEN)
 
 app = Flask(__name__)
 
@@ -15,51 +15,44 @@ app = Flask(__name__)
 def home():
     return "Bot is running!"
 
-def start(update, context):
-    update.message.reply_text("Send /yl <shadowlink> -n <title> -t <thumbnail_url>")
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "Send /yl <shadowlink> -n <title> -t <thumbnail>")
 
-def yl(update, context):
+@bot.message_handler(commands=['yl'])
+def yl(message):
     try:
-        text = update.message.text
-        parts = text.split()
-        shadowlink = parts[1]
-        name = text.split("-n", 1)[1].split("-t")[0].strip()
-        thumb = text.split("-t", 1)[1].strip()
+        text = message.text
+        if "-n" in text and "-t" in text:
+            parts = text.split("-n")
+            link_part = parts[0].replace("/yl", "").strip()
+            name_thumb = parts[1].split("-t")
+            name = name_thumb[0].strip()
+            thumb = name_thumb[1].strip()
 
-        # Request to Shadowlink API
-        res = requests.get(shadowlink)
-        json_data = res.json()
+            res = requests.get(link_part)
+            json_data = res.json()
 
-        # Extract and ensure it's an MKV link
-        dl_url = json_data.get('url')
-        if not dl_url.endswith(".mkv"):
-            dl_url += ".mkv"
+            video_url = json_data.get("url", "").replace("source", "preview") + ".mkv"
 
-        caption = f"<b><a href='{dl_url}'>{name}</a></b>\n\nHigh-speed MKV download link ready!"
+            caption = f"<b>{name}</b>\n\n<a href='{video_url}'>Download Link</a>"
+            markup = InlineKeyboardMarkup()
+            markup.row(
+                InlineKeyboardButton("Download", url=video_url),
+                InlineKeyboardButton("Leech", url=f"https://t.me/yourleechbot?start={video_url}")
+            )
 
-        buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Leech", url=dl_url)],
-            [InlineKeyboardButton("Copy Link", switch_inline_query=dl_url)]
-        ])
-
-        bot.send_photo(
-            chat_id=update.message.chat_id,
-            photo=thumb,
-            caption=caption,
-            parse_mode='HTML',
-            reply_markup=buttons
-        )
-
+            bot.send_photo(
+                chat_id=message.chat.id,
+                photo=thumb,
+                caption=caption,
+                parse_mode='HTML',
+                reply_markup=markup
+            )
+        else:
+            bot.reply_to(message, "Please use the correct format:\n/yl <shadowlink> -n <title> -t <thumbnail>")
     except Exception as e:
-        update.message.reply_text(f"Error: {e}")
+        bot.reply_to(message, f"Error: {e}")
 
-def run_bot():
-    updater = Updater(token=TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("yl", yl))
-    updater.start_polling()
-    updater.idle()
-
-if __name__ == '__main__':
-    run_bot()
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
