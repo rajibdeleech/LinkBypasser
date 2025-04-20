@@ -1,73 +1,65 @@
-from flask import Flask, request
-import telegram
-from telegram.ext import Dispatcher, CommandHandler
-import requests
 import os
+import requests
+from flask import Flask
+from dotenv import load_dotenv
+from telegram import Bot, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import CommandHandler, Updater
 
-TOKEN = "8115696441:AAHm-CyGqu628dTpxv2edBb_9YbRx8QtV0Y"
-bot = telegram.Bot(token=TOKEN)
+load_dotenv()
+TOKEN = os.getenv("BOT_TOKEN")
+bot = Bot(token=TOKEN)
 
 app = Flask(__name__)
 
-# /yl command handler
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def start(update, context):
+    update.message.reply_text("Send /yl <shadowlink> -n <title> -t <thumbnail_url>")
+
 def yl(update, context):
-    args = context.args
-    if not args:
-        update.message.reply_text("Usage: /yl <shadowlink> -n <title> -t <thumbnail>")
-        return
-
     try:
-        url = args[0]
-        name = ""
-        thumb = ""
+        text = update.message.text
+        parts = text.split()
+        shadowlink = parts[1]
+        name = text.split("-n", 1)[1].split("-t")[0].strip()
+        thumb = text.split("-t", 1)[1].strip()
 
-        if "-n" in args:
-            name = args[args.index("-n") + 1]
-        if "-t" in args:
-            thumb = args[args.index("-t") + 1]
+        # Request to Shadowlink API
+        res = requests.get(shadowlink)
+        json_data = res.json()
 
-        r = requests.get(url)
-        real_url = r.url
+        # Extract and ensure it's an MKV link
+        dl_url = json_data.get('url')
+        if not dl_url.endswith(".mkv"):
+            dl_url += ".mkv"
 
-        caption = f"📥 [{name}]({real_url})\n\n✅ Tap the button below to download or copy the link."
+        caption = f"<b><a href='{dl_url}'>{name}</a></b>\n\nHigh-speed MKV download link ready!"
 
-        keyboard = [
-            [telegram.InlineKeyboardButton("⚡ Download Now", url=real_url)],
-            [telegram.InlineKeyboardButton("📋 Copy Link", switch_inline_query=real_url)]
-        ]
-        reply_markup = telegram.InlineKeyboardMarkup(keyboard)
+        buttons = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Leech", url=dl_url)],
+            [InlineKeyboardButton("Copy Link", switch_inline_query=dl_url)]
+        ])
 
-        context.bot.send_photo(
-            chat_id=update.effective_chat.id,
+        bot.send_photo(
+            chat_id=update.message.chat_id,
             photo=thumb,
             caption=caption,
-            parse_mode=telegram.ParseMode.MARKDOWN,
-            reply_markup=reply_markup
+            parse_mode='HTML',
+            reply_markup=buttons
         )
 
     except Exception as e:
         update.message.reply_text(f"Error: {e}")
 
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    update = telegram.Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    return "OK"
+def run_bot():
+    updater = Updater(token=TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("yl", yl))
+    updater.start_polling()
+    updater.idle()
 
-@app.route('/')
-def index():
-    return 'Bot is running!'
-
-# Setup dispatcher
-from telegram.ext import CallbackContext
-dispatcher = Dispatcher(bot, None, use_context=True)
-dispatcher.add_handler(CommandHandler("yl", yl))
-
-# Set webhook on startup
-@app.before_first_request
-def init_webhook():
-    webhook_url = f"https://linkbypasser.onrender.com/{TOKEN}"  # Make sure this matches your Render URL
-    bot.set_webhook(url=webhook_url)
-
-if __name__ == "__main__":
-    app.run(port=10000)
+if __name__ == '__main__':
+    run_bot()
