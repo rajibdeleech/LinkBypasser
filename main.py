@@ -1,60 +1,73 @@
-import logging
+from flask import Flask, request
+import telegram
+from telegram.ext import Dispatcher, CommandHandler
 import requests
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import os
 
-BOT_TOKEN = "8115696441:AAHm-CyGqu628dTpxv2edBb_9YbRx8QtV0Y"
+TOKEN = "8115696441:AAHm-CyGqu628dTpxv2edBb_9YbRx8QtV0Y"
+bot = telegram.Bot(token=TOKEN)
 
-logging.basicConfig(level=logging.INFO)
+app = Flask(__name__)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Send /yl <shadowlink> -n <title> -t <thumbnail>")
+# /yl command handler
+def yl(update, context):
+    args = context.args
+    if not args:
+        update.message.reply_text("Usage: /yl <shadowlink> -n <title> -t <thumbnail>")
+        return
 
-async def yl(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        text = update.message.text
-        parts = text.split(" -n ")
-        url = parts[0].replace("/yl ", "").strip()
-        title_part = parts[1].split(" -t ")
-        title = title_part[0].strip()
-        thumb = title_part[1].strip()
+        url = args[0]
+        name = ""
+        thumb = ""
 
-        response = requests.get(url)
-        video_data = response.json()
-        original_url = video_data.get("data", {}).get("download")
+        if "-n" in args:
+            name = args[args.index("-n") + 1]
+        if "-t" in args:
+            thumb = args[args.index("-t") + 1]
 
-        if not original_url:
-            await update.message.reply_text("Failed to get download link.")
-            return
+        r = requests.get(url)
+        real_url = r.url
 
-        # Force MKV format if available
-        if not original_url.endswith(".mkv"):
-            if ".mp4" in original_url:
-                mkv_url = original_url.replace(".mp4", ".mkv")
-            else:
-                mkv_url = original_url + ".mkv"
-        else:
-            mkv_url = original_url
+        caption = f"📥 [{name}]({real_url})\n\n✅ Tap the button below to download or copy the link."
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("Leech", url=mkv_url)],
-            [InlineKeyboardButton("Copy Link", url=mkv_url)]
-        ])
+        keyboard = [
+            [telegram.InlineKeyboardButton("⚡ Download Now", url=real_url)],
+            [telegram.InlineKeyboardButton("📋 Copy Link", switch_inline_query=real_url)]
+        ]
+        reply_markup = telegram.InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_photo(
+        context.bot.send_photo(
+            chat_id=update.effective_chat.id,
             photo=thumb,
-            caption=f"<b><a href='{mkv_url}'>{title}</a></b>",
-            parse_mode="HTML",
-            reply_markup=keyboard
+            caption=caption,
+            parse_mode=telegram.ParseMode.MARKDOWN,
+            reply_markup=reply_markup
         )
 
     except Exception as e:
-        logging.error(e)
-        await update.message.reply_text("Error parsing command or fetching download link.")
+        update.message.reply_text(f"Error: {e}")
+
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    update = telegram.Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return "OK"
+
+@app.route('/')
+def index():
+    return 'Bot is running!'
+
+# Setup dispatcher
+from telegram.ext import CallbackContext
+dispatcher = Dispatcher(bot, None, use_context=True)
+dispatcher.add_handler(CommandHandler("yl", yl))
+
+# Set webhook on startup
+@app.before_first_request
+def init_webhook():
+    webhook_url = f"https://linkbypasser.onrender.com/{TOKEN}"  # Make sure this matches your Render URL
+    bot.set_webhook(url=webhook_url)
 
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("yl", yl))
-    print("Bot running...")
-    app.run_polling()
+    app.run(port=10000)
