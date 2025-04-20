@@ -1,58 +1,73 @@
-import os
+import logging
 import requests
-from flask import Flask
-from dotenv import load_dotenv
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-load_dotenv()
-TOKEN = os.getenv("BOT_TOKEN")
-bot = telebot.TeleBot(TOKEN)
+# Your actual bot token
+BOT_TOKEN = "8115696441:AAHm-CyGqu628dTpxv2edBb_9YbRx8QtV0Y"
 
-app = Flask(__name__)
+# Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-@app.route('/')
-def home():
-    return "Bot is running!"
+def parse_command(text):
+    parts = text.split()
+    shadowlink = parts[1] if len(parts) > 1 else None
+    title, thumb = "", ""
 
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.reply_to(message, "Send /yl <shadowlink> -n <title> -t <thumbnail>")
+    if "-n" in parts:
+        idx = parts.index("-n") + 1
+        if idx < len(parts): title = parts[idx]
 
-@bot.message_handler(commands=['yl'])
-def yl(message):
+    if "-t" in parts:
+        idx = parts.index("-t") + 1
+        if idx < len(parts): thumb = parts[idx]
+
+    return shadowlink, title, thumb
+
+async def yl(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        text = message.text
-        if "-n" in text and "-t" in text:
-            parts = text.split("-n")
-            link_part = parts[0].replace("/yl", "").strip()
-            name_thumb = parts[1].split("-t")
-            name = name_thumb[0].strip()
-            thumb = name_thumb[1].strip()
+        text = update.message.text
+        shadowlink, title, thumb = parse_command(text)
 
-            res = requests.get(link_part)
-            json_data = res.json()
+        if not shadowlink or not shadowlink.startswith("http"):
+            await update.message.reply_text("Invalid Shadowlink URL.")
+            return
 
-            video_url = json_data.get("url", "").replace("source", "preview") + ".mkv"
+        # Call Shadowlink API
+        res = requests.get(shadowlink)
+        if res.status_code != 200 or "url" not in res.json():
+            await update.message.reply_text("Failed to fetch link.")
+            return
 
-            caption = f"<b>{name}</b>\n\n<a href='{video_url}'>Download Link</a>"
-            markup = InlineKeyboardMarkup()
-            markup.row(
-                InlineKeyboardButton("Download", url=video_url),
-                InlineKeyboardButton("Leech", url=f"https://t.me/yourleechbot?start={video_url}")
-            )
+        mkv_link = res.json()["url"]
+        if not mkv_link.endswith(".mkv"):
+            mkv_link += ".mkv"  # Optional: force mkv if needed
 
-            bot.send_photo(
-                chat_id=message.chat.id,
+        buttons = InlineKeyboardMarkup([
+            [InlineKeyboardButton("▶ Download MKV", url=mkv_link)],
+            [InlineKeyboardButton("⬆ Leech/Upload", url=mkv_link)]
+        ])
+
+        if thumb:
+            await update.message.reply_photo(
                 photo=thumb,
-                caption=caption,
-                parse_mode='HTML',
-                reply_markup=markup
+                caption=f"**{title or 'Download Ready!'}**",
+                reply_markup=buttons,
+                parse_mode="Markdown"
             )
         else:
-            bot.reply_to(message, "Please use the correct format:\n/yl <shadowlink> -n <title> -t <thumbnail>")
+            await update.message.reply_text(
+                f"**{title or 'Download Ready!'}**\n{mkv_link}",
+                reply_markup=buttons,
+                parse_mode="Markdown"
+            )
+
     except Exception as e:
-        bot.reply_to(message, f"Error: {e}")
+        logger.error(e)
+        await update.message.reply_text("Error processing request.")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("yl", yl))
+    app.run_polling()
